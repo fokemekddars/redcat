@@ -156,7 +156,7 @@ export default function Home() {
 
     try {
       const limit = Math.min(parseInt(postLimit), 100)
-      const url = `/api/reddit?subreddit=${encodeURIComponent(subreddit)}&limit=${limit}&t=${timePeriod}`
+      const url = `/.netlify/functions/reddit?subreddit=${encodeURIComponent(subreddit)}&limit=${limit}&t=${timePeriod}`
       
       const response = await fetch(url)
 
@@ -185,7 +185,7 @@ export default function Home() {
   const fetchPostComments = async (postId: string, subredditName: string) => {
     setCommentsLoading(true)
     try {
-      const url = `/api/reddit?subreddit=${subredditName}&postId=${postId}&comments=true`
+      const url = `/.netlify/functions/reddit?subreddit=${subredditName}&postId=${postId}&comments=true`
       const response = await fetch(url)
       
       if (!response.ok) {

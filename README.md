@@ -143,9 +143,55 @@ To build for production:
 bun run build
 ```
 
+## Netlify Deployment
+
+This application is optimized for Netlify deployment with serverless functions to handle CORS issues and API authentication.
+
+### Deployment Steps
+
+1. **Build & Deploy**: Push your code to GitHub and connect to Netlify
+2. **Environment Variables**: In Netlify dashboard, add environment variables:
+   - `REDDIT_CLIENT_ID` (optional)
+   - `REDDIT_CLIENT_SECRET` (optional)
+3. **Build Settings**: 
+   - Build command: `npm run build`
+   - Publish directory: `out`
+
+### CORS Solution
+
+The app uses Netlify Functions (`/.netlify/functions/reddit`) instead of direct Reddit API calls to avoid CORS restrictions:
+
+- **Browser → Netlify Function → Reddit API** ✅ (No CORS issues)
+- **Browser → Reddit API** ❌ (CORS blocked)
+
+### Authentication Options
+
+- **Without credentials**: Uses Reddit's public JSON feeds (100 req/min limit)
+- **With Reddit API credentials**: Uses OAuth authentication (higher rate limits)
+
 ## Environment
 
+### Basic Functionality
 No environment variables required for basic functionality. The app works out of the box with Reddit's public JSON feeds.
+
+### Enhanced Reddit API (Optional)
+For higher rate limits and access to authenticated Reddit API features, add these environment variables:
+
+```bash
+# Reddit API credentials (optional - for higher rate limits and OAuth)
+# Get these from https://www.reddit.com/prefs/apps
+REDDIT_CLIENT_ID=your_client_id_here
+REDDIT_CLIENT_SECRET=your_client_secret_here
+```
+
+### Getting Reddit API Credentials
+
+1. Visit https://www.reddit.com/prefs/apps
+2. Click "Create App" or "Create Another App"
+3. Choose "script" as the app type
+4. Fill in the required fields (name, description, etc.)
+5. Set redirect URI to any valid URL (not used for this app)
+6. Copy the Client ID (under the app name) and Client Secret
 
 ## Limitations
 

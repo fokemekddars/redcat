@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'export',
+  trailingSlash: true,
   images: { 
     unoptimized: true,
     domains: [
@@ -8,19 +10,6 @@ const nextConfig = {
       'i.redd.it',
       'i.imgur.com',
       'imgur.com'
-    ]
-  },
-  async headers() {
-    return [
-      {
-        source: '/(.*)',
-        headers: [
-          {
-            key: 'Access-Control-Allow-Origin',
-            value: '*',
-          },
-        ],
-      },
     ]
   },
 };
