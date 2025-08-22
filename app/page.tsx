@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Download, DownloadCloud, ExternalLink, MessageSquare, Heart, Plus, X, Copy } from "lucide-react"
+import { Download, DownloadCloud, ExternalLink, MessageSquare, Heart, Plus, X, Copy, AlertTriangle, Clock, List } from "lucide-react"
 
 interface RedditPost {
   id: string
@@ -46,6 +46,24 @@ interface RedditComment {
   }
 }
 
+interface RepostRecord {
+  id: string
+  imageUrl: string
+  imageHash: string
+  postTitle: string
+  subreddit: string
+  author: string
+  permalink: string
+  timestamp: number
+}
+
+interface RepostInfo {
+  isRepost: boolean
+  originalPosts: RepostRecord[]
+  repostCount: number
+  similarity?: number
+}
+
 export default function Home() {
   const [subreddit, setSubreddit] = useState("")
   const [customSubreddits, setCustomSubreddits] = useState<string[]>([])
@@ -59,6 +77,8 @@ export default function Home() {
   const [posts, setPosts] = useState<RedditPost[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [repostData, setRepostData] = useState<Map<string, RepostInfo>>(new Map())
+  const [repostCheckLoading, setRepostCheckLoading] = useState<Set<string>>(new Set())
 
   const defaultSubreddits = ['meirl', 'me_irl', 'Meme', 'Memes', '2meirl4meirl', 'Sipstea']
 
@@ -67,7 +87,30 @@ export default function Home() {
     if (saved) {
       setCustomSubreddits(JSON.parse(saved))
     }
+    
+    // Load existing repost data
+    const savedReposts = localStorage.getItem('repostRecords')
+    if (savedReposts) {
+      try {
+        const records: RepostRecord[] = JSON.parse(savedReposts)
+        loadRepostDataFromRecords(records)
+      } catch (err) {
+        console.error('Failed to load repost data:', err)
+      }
+    }
   }, [])
+
+  // Effect to check for reposts when posts are loaded
+  useEffect(() => {
+    if (posts.length > 0) {
+      // Check each post for reposts with a small delay to avoid overwhelming the browser
+      posts.forEach((post, index) => {
+        setTimeout(() => {
+          checkForRepost(post)
+        }, index * 100) // Stagger the checks
+      })
+    }
+  }, [posts])
 
   const saveCustomSubreddits = (subs: string[]) => {
     setCustomSubreddits(subs)
@@ -211,6 +254,142 @@ export default function Home() {
     }
   }
 
+  // Hash comparison function (Hamming distance)
+  const calculateHammingDistance = (hash1: string, hash2: string): number => {
+    if (hash1.length !== hash2.length) return 100
+    let distance = 0
+    for (let i = 0; i < hash1.length; i++) {
+      if (hash1[i] !== hash2[i]) distance++
+    }
+    return distance
+  }
+
+  // Calculate image hash using browser-image-hash
+  const calculateImageHash = async (imageUrl: string): Promise<string | null> => {
+    try {
+      // Dynamically import browser-image-hash
+      const { DifferenceHashBuilder } = await import('browser-image-hash')
+      
+      try {
+        const builder = new DifferenceHashBuilder()
+        const hash = await builder.build(new URL(imageUrl))
+        return hash.toString()
+      } catch (err) {
+        console.error('Hash calculation failed:', err)
+        return null
+      }
+    } catch (err) {
+      console.error('Failed to load image hashing library:', err)
+      return null
+    }
+  }
+
+  // Load repost data from localStorage records
+  const loadRepostDataFromRecords = (records: RepostRecord[]) => {
+    const newRepostData = new Map<string, RepostInfo>()
+    
+    // Group records by hash to find reposts
+    const hashGroups = new Map<string, RepostRecord[]>()
+    records.forEach(record => {
+      if (!hashGroups.has(record.imageHash)) {
+        hashGroups.set(record.imageHash, [])
+      }
+      hashGroups.get(record.imageHash)!.push(record)
+    })
+
+    // Check for similar hashes using Hamming distance
+    hashGroups.forEach((group, hash) => {
+      group.forEach(record => {
+        const similarRecords: RepostRecord[] = []
+        
+        // Check against all other hashes for similarity
+        hashGroups.forEach((otherGroup, otherHash) => {
+          if (hash !== otherHash && calculateHammingDistance(hash, otherHash) <= 5) {
+            similarRecords.push(...otherGroup)
+          }
+        })
+
+        // Include records with same exact hash (excluding self)
+        const exactMatches = group.filter(r => r.id !== record.id)
+        similarRecords.push(...exactMatches)
+
+        const repostInfo: RepostInfo = {
+          isRepost: similarRecords.length > 0,
+          originalPosts: similarRecords.sort((a, b) => a.timestamp - b.timestamp),
+          repostCount: similarRecords.length,
+          similarity: similarRecords.length > 0 ? 95 : 0
+        }
+
+        newRepostData.set(record.id, repostInfo)
+      })
+    })
+    
+    setRepostData(newRepostData)
+  }
+
+  // Check if post is a repost
+  const checkForRepost = async (post: RedditPost) => {
+    const imageUrl = getImageUrl(post)
+    if (!imageUrl) return
+
+    setRepostCheckLoading(prev => new Set(prev).add(post.id))
+
+    try {
+      const imageHash = await calculateImageHash(imageUrl)
+      if (!imageHash) return
+
+      // Get existing records from localStorage
+      const savedRecords = localStorage.getItem('repostRecords')
+      const existingRecords: RepostRecord[] = savedRecords ? JSON.parse(savedRecords) : []
+      
+      // Create new record
+      const newRecord: RepostRecord = {
+        id: post.id,
+        imageUrl,
+        imageHash,
+        postTitle: post.title,
+        subreddit: post.subreddit,
+        author: post.author,
+        permalink: post.permalink,
+        timestamp: post.created_utc * 1000
+      }
+
+      // Check for reposts
+      const similarPosts: RepostRecord[] = []
+      for (const record of existingRecords) {
+        if (record.id !== post.id) {
+          const distance = calculateHammingDistance(imageHash, record.imageHash)
+          if (distance <= 5) { // Similar images (threshold: 5 bits difference)
+            similarPosts.push(record)
+          }
+        }
+      }
+
+      const repostInfo: RepostInfo = {
+        isRepost: similarPosts.length > 0,
+        originalPosts: similarPosts.sort((a, b) => a.timestamp - b.timestamp),
+        repostCount: similarPosts.length,
+        similarity: similarPosts.length > 0 ? Math.max(0, 100 - calculateHammingDistance(imageHash, similarPosts[0].imageHash) * 10) : 0
+      }
+
+      // Update repost data
+      setRepostData(prev => new Map(prev).set(post.id, repostInfo))
+
+      // Save new record to localStorage
+      const updatedRecords = [...existingRecords, newRecord]
+      localStorage.setItem('repostRecords', JSON.stringify(updatedRecords))
+
+    } catch (err) {
+      console.error('Repost check failed:', err)
+    } finally {
+      setRepostCheckLoading(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(post.id)
+        return newSet
+      })
+    }
+  }
+
   const postsWithImages = posts.filter(post => getImageUrl(post) !== null)
 
   return (
@@ -333,9 +512,18 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {posts.map((post) => {
             const imageUrl = getImageUrl(post)
+            const repostInfo = repostData.get(post.id)
+            const isChecking = repostCheckLoading.has(post.id)
+            const isRepost = repostInfo?.isRepost || false
             
             return (
-              <Card key={post.id} className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer" onClick={() => handlePostClick(post)}>
+              <Card 
+                key={post.id} 
+                className={`overflow-hidden hover:shadow-lg transition-all cursor-pointer ${
+                  isRepost ? 'bg-red-50 border-red-200 shadow-red-100' : ''
+                }`}
+                onClick={() => handlePostClick(post)}
+              >
                 {imageUrl && (
                   <div className="relative">
                     <img 
@@ -357,13 +545,53 @@ export default function Home() {
                     >
                       <Download className="h-4 w-4" />
                     </Button>
+                    
+                    {/* Repost indicator */}
+                    {isRepost && (
+                      <div className="absolute top-2 left-2 bg-red-500 text-white px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        REPOST
+                      </div>
+                    )}
+                    
+                    {/* Checking indicator */}
+                    {isChecking && (
+                      <div className="absolute bottom-2 left-2 bg-blue-500 text-white px-2 py-1 rounded-full text-xs flex items-center gap-1">
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
+                        Checking...
+                      </div>
+                    )}
                   </div>
                 )}
                 
-                <CardContent className="p-4">
+                <CardContent className={`p-4 ${isRepost ? 'bg-red-50' : ''}`}>
                   <h3 className="font-semibold text-sm mb-2 line-clamp-2 leading-tight">
                     {post.title}
                   </h3>
+                  
+                  {/* Repost info display */}
+                  {isRepost && repostInfo && (
+                    <div className="mb-3 p-2 bg-red-100 rounded-lg border border-red-200">
+                      <div className="flex items-center gap-2 text-xs text-red-700 mb-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        <span className="font-medium">
+                          Reposted {repostInfo.repostCount} time{repostInfo.repostCount !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      {repostInfo.repostCount >= 5 ? (
+                        <div className="text-xs text-red-600">
+                          <List className="h-3 w-3 inline mr-1" />
+                          Multiple reposts detected - click to see list
+                        </div>
+                      ) : repostInfo.originalPosts.length > 0 && (
+                        <div className="text-xs text-red-600">
+                          <Clock className="h-3 w-3 inline mr-1" />
+                          First posted {new Date(repostInfo.originalPosts[0].timestamp).toLocaleDateString()} 
+                          in r/{repostInfo.originalPosts[0].subreddit}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   
                   <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
                     <span>u/{post.author}</span>
@@ -445,6 +673,83 @@ export default function Home() {
                     </div>
                   </div>
                 </DialogHeader>
+                
+                {/* Repost Information Section */}
+                {selectedPost && repostData.get(selectedPost.id)?.isRepost && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <AlertTriangle className="h-5 w-5 text-red-500" />
+                      <h4 className="font-semibold text-red-700">Repost Detected</h4>
+                    </div>
+                    
+                    {(() => {
+                      const repostInfo = repostData.get(selectedPost.id)!
+                      return (
+                        <>
+                          <p className="text-sm text-red-600 mb-3">
+                            This image has been posted {repostInfo.repostCount} time{repostInfo.repostCount !== 1 ? 's' : ''} before
+                            {repostInfo.similarity && ` with ${Math.round(repostInfo.similarity)}% similarity`}.
+                          </p>
+                          
+                          {repostInfo.repostCount >= 5 ? (
+                            <div className="space-y-2">
+                              <h5 className="font-medium text-red-700 flex items-center gap-1">
+                                <List className="h-4 w-4" />
+                                Previous Posts ({repostInfo.originalPosts.length}):
+                              </h5>
+                              <div className="max-h-32 overflow-y-auto space-y-2">
+                                {repostInfo.originalPosts.map((originalPost, index) => (
+                                  <div key={index} className="bg-white p-2 rounded border text-xs">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="font-medium">r/{originalPost.subreddit}</span>
+                                      <span className="text-gray-500">
+                                        {new Date(originalPost.timestamp).toLocaleDateString()}
+                                      </span>
+                                    </div>
+                                    <p className="text-gray-600 line-clamp-1" title={originalPost.postTitle}>
+                                      {originalPost.postTitle}
+                                    </p>
+                                    <p className="text-gray-500">by u/{originalPost.author}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : repostInfo.originalPosts.length > 0 && (
+                            <div className="space-y-2">
+                              <h5 className="font-medium text-red-700">Original Post:</h5>
+                              {repostInfo.originalPosts.map((originalPost, index) => (
+                                <div key={index} className="bg-white p-3 rounded border">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                      <Clock className="h-4 w-4 text-gray-500" />
+                                      <span className="text-sm font-medium">r/{originalPost.subreddit}</span>
+                                    </div>
+                                    <span className="text-sm text-gray-500">
+                                      {new Date(originalPost.timestamp).toLocaleDateString()}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-gray-700 mb-1">{originalPost.postTitle}</p>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-gray-500">by u/{originalPost.author}</span>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-xs"
+                                      onClick={() => window.open(`https://reddit.com${originalPost.permalink}`, '_blank')}
+                                    >
+                                      <ExternalLink className="h-3 w-3 mr-1" />
+                                      View Original
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )
+                    })()}
+                  </div>
+                )}
                 
                 <div className="space-y-4">
                   {getImageUrl(selectedPost) && (

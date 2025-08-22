@@ -18,6 +18,11 @@ A modern web application built with Next.js 14 that allows you to explore and do
 📦 **Bulk Downloads** - Download all images from the results at once  
 📱 **Responsive Design** - Works perfectly on desktop, tablet, and mobile devices  
 ⚡ **Fast Loading** - Optimized performance with loading states and error handling  
+🚨 **Repost Detection** - Advanced image hashing to detect when images have been reposted  
+🔴 **Visual Repost Indicators** - Post cards turn red and show warning badges for detected reposts  
+📅 **Repost History** - Click repost cards to see detailed history including original post dates and subreddits  
+📊 **Smart Detection** - Uses dHash algorithm for fast and accurate similar image detection  
+💾 **Persistent Tracking** - Repost data is stored locally to build detection accuracy over time  
 
 ## Technology Stack
 
@@ -26,6 +31,33 @@ A modern web application built with Next.js 14 that allows you to explore and do
 - **Tailwind CSS** - Modern utility-first CSS framework
 - **shadcn/ui** - Beautiful, accessible component library
 - **Lucide React** - Modern icon library
+- **browser-image-hash** - Client-side image hashing for repost detection
+
+## Repost Detection System
+
+### Advanced Image Hashing Technology
+
+The application includes sophisticated repost detection inspired by RepostSleuthBot, using client-side image hashing to identify when images have been posted before.
+
+**Key Features:**
+- **dHash Algorithm** - Uses difference hashing for fast and accurate image comparison
+- **Hamming Distance** - Measures similarity between images with 5-bit threshold for detection
+- **Real-time Processing** - Images are hashed and checked automatically when posts load
+- **Visual Indicators** - Reposts are highlighted with red backgrounds and warning badges
+- **Detailed History** - Click on repost cards to see complete posting history
+
+**How It Works:**
+1. Each image is processed using the dHash (difference hash) algorithm
+2. Hash values are stored locally in browser storage
+3. New images are compared against existing hashes using Hamming distance
+4. Images with ≤5 bits difference are considered similar/reposts
+5. Repost information includes original post dates, subreddits, and authors
+
+**Smart Detection:**
+- Handles multiple reposts (5+ shows as list view)
+- Tracks posting history across subreddits
+- Persistent storage builds accuracy over time
+- Works entirely offline after initial image processing
 
 ## Reddit API Integration
 
