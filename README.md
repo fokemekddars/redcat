@@ -122,9 +122,10 @@ For production applications requiring higher rate limits or access to private su
 ## Technical Implementation Details
 
 - **CORS Handling** - Internal API route proxies Reddit requests to avoid CORS issues
-- **Image Processing** - Handles multiple Reddit image formats and preview URLs
-- **Download Mechanism** - Client-side downloads using Blob URLs
-- **Error Handling** - Comprehensive error states and user feedback
+- **Image Processing** - Handles multiple Reddit image formats and preview URLs  
+- **Download Mechanism** - Proxied downloads via `/api/download` endpoint to avoid CORS issues
+- **Repost Detection Rate Limiting** - Intelligent queue system processes only 10 posts initially with 2-second delays between checks
+- **Error Handling** - Comprehensive error states and user feedback with timeout handling
 - **Loading States** - Smooth loading indicators and skeleton states
 
 ## Development

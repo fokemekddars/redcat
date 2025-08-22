@@ -100,17 +100,44 @@ export default function Home() {
     }
   }, [])
 
-  // Effect to check for reposts when posts are loaded
+  // Queue system for repost checking
+  const [repostQueue, setRepostQueue] = useState<RedditPost[]>([])
+  const [isProcessingReposts, setIsProcessingReposts] = useState(false)
+  
+  // Effect to queue reposts when posts are loaded
   useEffect(() => {
     if (posts.length > 0) {
-      // Check each post for reposts with a small delay to avoid overwhelming the browser
-      posts.forEach((post, index) => {
-        setTimeout(() => {
-          checkForRepost(post)
-        }, index * 100) // Stagger the checks
-      })
+      // Only process first 10 posts initially to avoid overwhelming Reddit
+      const postsToCheck = posts.slice(0, 10).filter(post => getImageUrl(post) !== null)
+      setRepostQueue(postsToCheck)
     }
   }, [posts])
+  
+  // Process repost queue with proper rate limiting
+  useEffect(() => {
+    const processNextRepost = async () => {
+      if (repostQueue.length > 0 && !isProcessingReposts) {
+        setIsProcessingReposts(true)
+        const currentPost = repostQueue[0]
+        
+        try {
+          await checkForRepost(currentPost)
+        } catch (err) {
+          console.error('Repost check failed for post:', currentPost.id, err)
+        }
+        
+        // Remove processed post and add delay before next one
+        setTimeout(() => {
+          setRepostQueue(prev => prev.slice(1))
+          setIsProcessingReposts(false)
+        }, 2000) // 2 second delay between checks to avoid rate limiting
+      }
+    }
+    
+    if (repostQueue.length > 0 && !isProcessingReposts) {
+      processNextRepost()
+    }
+  }, [repostQueue, isProcessingReposts])
 
   const saveCustomSubreddits = (subs: string[]) => {
     setCustomSubreddits(subs)
@@ -225,7 +252,14 @@ export default function Home() {
 
   const downloadImage = async (url: string, filename: string) => {
     try {
-      const response = await fetch(url)
+      // Use API route to proxy the image download to avoid CORS issues
+      const proxyUrl = `/api/download?url=${encodeURIComponent(url)}`
+      const response = await fetch(proxyUrl)
+      
+      if (!response.ok) {
+        throw new Error(`Download failed: ${response.status}`)
+      }
+      
       const blob = await response.blob()
       const blobUrl = window.URL.createObjectURL(blob)
       
@@ -239,6 +273,7 @@ export default function Home() {
       window.URL.revokeObjectURL(blobUrl)
     } catch (err) {
       console.error('Download failed:', err)
+      alert('Download failed. The image might not be accessible.')
     }
   }
 
@@ -264,22 +299,34 @@ export default function Home() {
     return distance
   }
 
-  // Calculate image hash using browser-image-hash
+  // Calculate image hash using browser-image-hash with timeout and error handling
   const calculateImageHash = async (imageUrl: string): Promise<string | null> => {
     try {
       // Dynamically import browser-image-hash
       const { DifferenceHashBuilder } = await import('browser-image-hash')
       
-      try {
-        const builder = new DifferenceHashBuilder()
-        const hash = await builder.build(new URL(imageUrl))
-        return hash.toString()
-      } catch (err) {
-        console.error('Hash calculation failed:', err)
-        return null
-      }
+      // Add timeout to prevent hanging on slow images
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Hash calculation timeout')), 30000)
+      )
+      
+      const hashPromise = (async () => {
+        try {
+          const builder = new DifferenceHashBuilder()
+          const hash = await builder.build(new URL(imageUrl))
+          return hash.toString()
+        } catch (err) {
+          // Try with a proxy URL if direct access fails
+          const proxyUrl = `/api/download?url=${encodeURIComponent(imageUrl)}`
+          const builder = new DifferenceHashBuilder()
+          const hash = await builder.build(new URL(proxyUrl, window.location.origin))
+          return hash.toString()
+        }
+      })()
+      
+      return await Promise.race([hashPromise, timeoutPromise])
     } catch (err) {
-      console.error('Failed to load image hashing library:', err)
+      console.error('Hash calculation failed for URL:', imageUrl, err)
       return null
     }
   }
@@ -327,7 +374,7 @@ export default function Home() {
     setRepostData(newRepostData)
   }
 
-  // Check if post is a repost
+  // Check if post is a repost with improved error handling
   const checkForRepost = async (post: RedditPost) => {
     const imageUrl = getImageUrl(post)
     if (!imageUrl) return
@@ -335,12 +382,36 @@ export default function Home() {
     setRepostCheckLoading(prev => new Set(prev).add(post.id))
 
     try {
-      const imageHash = await calculateImageHash(imageUrl)
-      if (!imageHash) return
-
-      // Get existing records from localStorage
+      // Check if we already have this post in our records
       const savedRecords = localStorage.getItem('repostRecords')
       const existingRecords: RepostRecord[] = savedRecords ? JSON.parse(savedRecords) : []
+      
+      const existingRecord = existingRecords.find(record => record.id === post.id)
+      if (existingRecord) {
+        // Post already processed, just check for reposts
+        const similarPosts: RepostRecord[] = []
+        for (const record of existingRecords) {
+          if (record.id !== post.id && calculateHammingDistance(existingRecord.imageHash, record.imageHash) <= 5) {
+            similarPosts.push(record)
+          }
+        }
+        
+        const repostInfo: RepostInfo = {
+          isRepost: similarPosts.length > 0,
+          originalPosts: similarPosts.sort((a, b) => a.timestamp - b.timestamp),
+          repostCount: similarPosts.length,
+          similarity: similarPosts.length > 0 ? 95 : 0
+        }
+        
+        setRepostData(prev => new Map(prev).set(post.id, repostInfo))
+        return
+      }
+
+      const imageHash = await calculateImageHash(imageUrl)
+      if (!imageHash) {
+        console.warn(`Failed to hash image for post ${post.id}`)
+        return
+      }
       
       // Create new record
       const newRecord: RepostRecord = {
@@ -380,7 +451,8 @@ export default function Home() {
       localStorage.setItem('repostRecords', JSON.stringify(updatedRecords))
 
     } catch (err) {
-      console.error('Repost check failed:', err)
+      console.error('Repost check failed for post:', post.id, err)
+      // Don't fail silently, but don't block the UI either
     } finally {
       setRepostCheckLoading(prev => {
         const newSet = new Set(prev)
@@ -498,14 +570,35 @@ export default function Home() {
               <Badge variant="outline" className="text-lg py-2 px-4">
                 {postsWithImages.length} with images
               </Badge>
+              {repostQueue.length > 0 && (
+                <Badge variant="outline" className="text-lg py-2 px-4 flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                  Checking reposts ({repostQueue.length} remaining)
+                </Badge>
+              )}
             </div>
             
-            {postsWithImages.length > 0 && (
-              <Button onClick={downloadAllImages} variant="outline" className="flex items-center gap-2">
-                <DownloadCloud className="h-4 w-4" />
-                Download All Images ({postsWithImages.length})
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {repostQueue.length === 0 && posts.length > 10 && (
+                <Button 
+                  onClick={() => {
+                    const remainingPosts = posts.slice(10).filter(post => getImageUrl(post) !== null)
+                    setRepostQueue(prev => [...prev, ...remainingPosts])
+                  }}
+                  variant="ghost" 
+                  size="sm"
+                  className="text-xs"
+                >
+                  Check More Reposts
+                </Button>
+              )}
+              {postsWithImages.length > 0 && (
+                <Button onClick={downloadAllImages} variant="outline" className="flex items-center gap-2">
+                  <DownloadCloud className="h-4 w-4" />
+                  Download All Images ({postsWithImages.length})
+                </Button>
+              )}
+            </div>
           </div>
         )}
 
