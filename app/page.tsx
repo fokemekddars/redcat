@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Download, DownloadCloud, ExternalLink, MessageSquare, Heart } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Download, DownloadCloud, ExternalLink, MessageSquare, Heart, Plus, X, Copy } from "lucide-react"
 
 interface RedditPost {
   id: string
@@ -19,6 +20,7 @@ interface RedditPost {
   created_utc: number
   subreddit: string
   thumbnail?: string
+  selftext?: string
   preview?: {
     images: Array<{
       source: {
@@ -31,13 +33,46 @@ interface RedditPost {
   url_overridden_by_dest?: string
 }
 
+interface RedditComment {
+  id: string
+  body: string
+  author: string
+  score: number
+  created_utc: number
+  replies?: {
+    data: {
+      children: Array<{ data: RedditComment }>
+    }
+  }
+}
+
 export default function Home() {
   const [subreddit, setSubreddit] = useState("")
+  const [customSubreddits, setCustomSubreddits] = useState<string[]>([])
+  const [showAddSubreddit, setShowAddSubreddit] = useState(false)
+  const [newSubreddit, setNewSubreddit] = useState("")
+  const [selectedPost, setSelectedPost] = useState<RedditPost | null>(null)
+  const [postComments, setPostComments] = useState<RedditComment[]>([])
+  const [commentsLoading, setCommentsLoading] = useState(false)
   const [timePeriod, setTimePeriod] = useState("week")
   const [postLimit, setPostLimit] = useState("100")
   const [posts, setPosts] = useState<RedditPost[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+
+  const defaultSubreddits = ['meirl', 'me_irl', 'Meme', 'Memes', '2meirl4meirl', 'Sipstea']
+
+  useEffect(() => {
+    const saved = localStorage.getItem('customSubreddits')
+    if (saved) {
+      setCustomSubreddits(JSON.parse(saved))
+    }
+  }, [])
+
+  const saveCustomSubreddits = (subs: string[]) => {
+    setCustomSubreddits(subs)
+    localStorage.setItem('customSubreddits', JSON.stringify(subs))
+  }
 
   const fetchRedditPosts = async () => {
     if (!subreddit.trim()) {
@@ -64,7 +99,7 @@ export default function Home() {
       if (data.data && data.data.children) {
         const fetchedPosts = data.data.children
           .map((child: any) => child.data)
-          .filter((post: any) => post.url && !post.is_self)
+          .filter((post: any) => post.url)
         
         setPosts(fetchedPosts)
       } else {
@@ -75,6 +110,58 @@ export default function Home() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const fetchPostComments = async (postId: string, subredditName: string) => {
+    setCommentsLoading(true)
+    try {
+      const url = `/api/reddit?subreddit=${subredditName}&postId=${postId}&comments=true`
+      const response = await fetch(url)
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch comments: ${response.status}`)
+      }
+
+      const data = await response.json()
+      if (data.length > 1 && data[1].data?.children) {
+        const comments = data[1].data.children
+          .map((child: any) => child.data)
+          .filter((comment: any) => comment.body && comment.body !== '[deleted]' && comment.body !== '[removed]')
+          .slice(0, 10)
+        
+        setPostComments(comments)
+      }
+    } catch (err) {
+      console.error('Failed to fetch comments:', err)
+      setPostComments([])
+    } finally {
+      setCommentsLoading(false)
+    }
+  }
+
+  const addCustomSubreddit = () => {
+    if (newSubreddit.trim() && !defaultSubreddits.includes(newSubreddit.trim()) && !customSubreddits.includes(newSubreddit.trim())) {
+      const updatedSubs = [...customSubreddits, newSubreddit.trim()]
+      saveCustomSubreddits(updatedSubs)
+      setNewSubreddit("")
+      setShowAddSubreddit(false)
+    }
+  }
+
+  const removeCustomSubreddit = (subToRemove: string) => {
+    const updatedSubs = customSubreddits.filter(sub => sub !== subToRemove)
+    saveCustomSubreddits(updatedSubs)
+  }
+
+  const handlePostClick = (post: RedditPost) => {
+    setSelectedPost(post)
+    fetchPostComments(post.id, post.subreddit)
+  }
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      console.log('Copied to clipboard')
+    })
   }
 
   const getImageUrl = (post: RedditPost): string | null => {
@@ -142,8 +229,31 @@ export default function Home() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-2">Subreddit</label>
+                <div className="flex gap-2 mb-2">
+                  <Select value={subreddit} onValueChange={setSubreddit}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Select frequently used" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {defaultSubreddits.map(sub => (
+                        <SelectItem key={sub} value={sub}>{sub}</SelectItem>
+                      ))}
+                      {customSubreddits.map(sub => (
+                        <SelectItem key={`custom-${sub}`} value={sub}>{sub}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowAddSubreddit(true)}
+                    className="px-3"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
                 <Input
-                  placeholder="e.g. earthporn, pics, photography"
+                  placeholder="Or type custom subreddit name"
                   value={subreddit}
                   onChange={(e) => setSubreddit(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && fetchRedditPosts()}
@@ -225,7 +335,7 @@ export default function Home() {
             const imageUrl = getImageUrl(post)
             
             return (
-              <Card key={post.id} className="overflow-hidden hover:shadow-lg transition-shadow">
+              <Card key={post.id} className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer" onClick={() => handlePostClick(post)}>
                 {imageUrl && (
                   <div className="relative">
                     <img 
@@ -240,7 +350,10 @@ export default function Home() {
                       size="sm"
                       variant="secondary"
                       className="absolute top-2 right-2 opacity-80 hover:opacity-100"
-                      onClick={() => downloadImage(imageUrl, `${post.id}_${post.title.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '_')}.jpg`)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        downloadImage(imageUrl, `${post.id}_${post.title.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '_')}.jpg`)
+                      }}
                     >
                       <Download className="h-4 w-4" />
                     </Button>
@@ -271,7 +384,10 @@ export default function Home() {
                       size="sm" 
                       variant="outline" 
                       className="flex-1 text-xs"
-                      onClick={() => window.open(`https://reddit.com${post.permalink}`, '_blank')}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        window.open(`https://reddit.com${post.permalink}`, '_blank')
+                      }}
                     >
                       <ExternalLink className="h-3 w-3 mr-1" />
                       View Post
@@ -282,6 +398,145 @@ export default function Home() {
             )
           })}
         </div>
+
+        {/* Add Subreddit Dialog */}
+        <Dialog open={showAddSubreddit} onOpenChange={setShowAddSubreddit}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add Custom Subreddit</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <Input
+                placeholder="Enter subreddit name (without r/)"
+                value={newSubreddit}
+                onChange={(e) => setNewSubreddit(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && addCustomSubreddit()}
+              />
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setShowAddSubreddit(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={addCustomSubreddit} disabled={!newSubreddit.trim()}>
+                  Add
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Post Details Modal */}
+        <Dialog open={!!selectedPost} onOpenChange={() => setSelectedPost(null)}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            {selectedPost && (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-left">{selectedPost.title}</DialogTitle>
+                  <div className="flex items-center justify-between text-sm text-gray-500">
+                    <span>by u/{selectedPost.author} in r/{selectedPost.subreddit}</span>
+                    <div className="flex items-center gap-4">
+                      <span className="flex items-center gap-1">
+                        <Heart className="h-4 w-4" />
+                        {selectedPost.score}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <MessageSquare className="h-4 w-4" />
+                        {selectedPost.num_comments}
+                      </span>
+                    </div>
+                  </div>
+                </DialogHeader>
+                
+                <div className="space-y-4">
+                  {getImageUrl(selectedPost) && (
+                    <div className="relative">
+                      <img 
+                        src={getImageUrl(selectedPost)!} 
+                        alt={selectedPost.title}
+                        className="w-full max-h-96 object-contain rounded-lg"
+                      />
+                    </div>
+                  )}
+                  
+                  {selectedPost.selftext && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold">Post Content</h4>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => copyToClipboard(selectedPost.selftext!)}
+                        >
+                          <Copy className="h-4 w-4 mr-1" />
+                          Copy
+                        </Button>
+                      </div>
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <p className="whitespace-pre-wrap">{selectedPost.selftext}</p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-semibold">Top Comments ({postComments.length})</h4>
+                      {postComments.length > 0 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const commentsText = postComments.map((comment, i) => 
+                              `${i + 1}. u/${comment.author} (${comment.score} points):\n${comment.body}\n`
+                            ).join('\n')
+                            copyToClipboard(commentsText)
+                          }}
+                        >
+                          <Copy className="h-4 w-4 mr-1" />
+                          Copy All
+                        </Button>
+                      )}
+                    </div>
+                    
+                    {commentsLoading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                        <span className="ml-2">Loading comments...</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 max-h-96 overflow-y-auto">
+                        {postComments.map((comment, index) => (
+                          <div key={comment.id} className="bg-gray-50 p-3 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2 text-sm text-gray-600">
+                                <span className="font-medium">#{index + 1}</span>
+                                <span>u/{comment.author}</span>
+                                <span className="flex items-center gap-1">
+                                  <Heart className="h-3 w-3" />
+                                  {comment.score}
+                                </span>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => copyToClipboard(comment.body)}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
+                            <p className="text-sm whitespace-pre-wrap">{comment.body}</p>
+                          </div>
+                        ))}
+                        
+                        {postComments.length === 0 && !commentsLoading && (
+                          <p className="text-center text-gray-500 py-4">No comments found</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
 
         {loading && (
           <div className="text-center py-12">

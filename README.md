@@ -5,9 +5,15 @@ A modern web application built with Next.js 14 that allows you to explore and do
 ## Features
 
 🔍 **Subreddit Search** - Enter any public subreddit name to explore  
+⭐ **Personalized Subreddit Dropdown** - Quick access to frequently used subreddits (meirl, me_irl, Meme, Memes, 2meirl4meirl, Sipstea)  
+➕ **Custom Subreddit Management** - Add your own favorite subreddits with the + button and remove them when needed  
+💾 **Persistent Preferences** - Your custom subreddit list is saved in localStorage  
 ⏰ **Time Period Filtering** - Choose from Today, This Week, This Month, This Year, or All Time  
 📊 **Post Limits** - Select between top 25, 50, or 100 posts  
 🖼️ **Image Display** - Beautiful card-based layout showing post images  
+🔍 **Post Modal View** - Click any post card to view full content in an elegant modal  
+💬 **Top Comments Display** - View top 10 comments for any post with scores and author info  
+📋 **Copy Functionality** - Copy individual comments, all comments, or post content to clipboard  
 ⬇️ **Individual Downloads** - Download any image with a single click  
 📦 **Bulk Downloads** - Download all images from the results at once  
 📱 **Responsive Design** - Works perfectly on desktop, tablet, and mobile devices  
@@ -52,11 +58,14 @@ For production applications requiring higher rate limits or access to private su
 
 ## How to Use
 
-1. **Enter Subreddit Name** - Type the name of any public subreddit (without the "r/" prefix)
-2. **Select Time Period** - Choose from Today, Week, Month, Year, or All Time
-3. **Choose Post Limit** - Select how many top posts to fetch (25, 50, or 100)
-4. **Click Fetch Posts** - The app will load the top posts with images
-5. **Download Images** - Use individual download buttons or bulk download all
+1. **Select Subreddit** - Choose from the dropdown of frequently used subreddits or type a custom one
+2. **Add Custom Subreddits** - Click the + button to add your favorite subreddits for quick access
+3. **Select Time Period** - Choose from Today, Week, Month, Year, or All Time
+4. **Choose Post Limit** - Select how many top posts to fetch (25, 50, or 100)
+5. **Click Fetch Posts** - The app will load the top posts with images
+6. **View Post Details** - Click any post card to open a modal with full content and top 10 comments
+7. **Copy Content** - Use copy buttons to copy post content or comments to your clipboard
+8. **Download Images** - Use individual download buttons or bulk download all
 
 ## Popular Subreddits to Try
 

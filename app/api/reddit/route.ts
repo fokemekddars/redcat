@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const subreddit = searchParams.get('subreddit')
+  const postId = searchParams.get('postId')
+  const comments = searchParams.get('comments')
   const timePeriod = searchParams.get('t') || 'week'
   const limit = searchParams.get('limit') || '100'
 
@@ -11,7 +13,15 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const url = `https://www.reddit.com/r/${subreddit}/top.json?limit=${limit}&t=${timePeriod}`
+    let url: string
+
+    if (comments && postId) {
+      // Fetch comments for a specific post
+      url = `https://www.reddit.com/r/${subreddit}/comments/${postId}.json?sort=top&limit=10`
+    } else {
+      // Fetch top posts
+      url = `https://www.reddit.com/r/${subreddit}/top.json?limit=${limit}&t=${timePeriod}`
+    }
     
     const response = await fetch(url, {
       headers: {
